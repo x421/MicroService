@@ -1,7 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -16,10 +19,45 @@ namespace Test2.Controllers
     public class UsersBasesController : ControllerBase
     {
         private readonly UsersContext _context;
-
+        private AesManaged myAes;
         public UsersBasesController(UsersContext context)
         {
+            myAes = new AesManaged();
             _context = context;
+        }
+
+        static byte[] EncryptStringToBytes_Aes(string plainText, byte[] Key, byte[] IV)
+        {
+            if (plainText == null || plainText.Length <= 0)
+                throw new ArgumentNullException("plainText");
+            if (Key == null || Key.Length <= 0)
+                throw new ArgumentNullException("Key");
+            if (IV == null || IV.Length <= 0)
+                throw new ArgumentNullException("IV");
+            byte[] encrypted;
+
+            using (AesManaged aesAlg = new AesManaged())
+            {
+                aesAlg.Key = Key;
+                aesAlg.IV = IV;
+
+                ICryptoTransform encryptor = aesAlg.CreateEncryptor(aesAlg.Key, aesAlg.IV);
+
+                using (MemoryStream msEncrypt = new MemoryStream())
+                {
+                    using (CryptoStream csEncrypt = new CryptoStream(msEncrypt, encryptor, CryptoStreamMode.Write))
+                    {
+                        using (StreamWriter swEncrypt = new StreamWriter(csEncrypt))
+                        {
+                            swEncrypt.Write(plainText);
+                        }
+                        encrypted = msEncrypt.ToArray();
+                    }
+                }
+            }
+
+            return encrypted;
+
         }
 
         // GET: api/UsersBases
@@ -29,6 +67,12 @@ namespace Test2.Controllers
             WebClient client = new WebClient();
             string response = client.DownloadString("http://jsonplaceholder.typicode.com/users");
             List<UsersBase> Users = JsonConvert.DeserializeObject<List<UsersBase>>(response);
+
+            for (int i = 0; i < Users.Count; i++)
+            {
+                byte[] buffer = EncryptStringToBytes_Aes(Users[i].Email, myAes.Key, myAes.IV);
+                Users[i].Email = Encoding.UTF8.GetString(buffer, 0, buffer.Length);
+            }
 
             return Users;
         }
@@ -41,6 +85,9 @@ namespace Test2.Controllers
             string response = client.DownloadString("http://jsonplaceholder.typicode.com/users/"+id+"");
 
             UsersBase Users = JsonConvert.DeserializeObject<UsersBase>(response);
+
+            byte[] buffer = EncryptStringToBytes_Aes(Users.Email, myAes.Key, myAes.IV);
+            Users.Email = Encoding.UTF8.GetString(buffer, 0, buffer.Length);
 
             return Users;
         }
